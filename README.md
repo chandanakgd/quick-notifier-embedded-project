@@ -1,0 +1,1 @@
+# quick-notifier-embedded-project
