@@ -29,8 +29,13 @@ char keys[n_rows][n_cols] = {
 };
 
 int readmsgpos = -1;
-int selector = 1;
+int selector = 0;
 int readcallpos = -1;
+
+String users[10];
+String pins[10];
+
+String curr_user = "";
 
 byte colPins[n_rows] = {D0, D3, D4};
 byte rowPins[n_cols] = {D5, D6, D7};
@@ -71,7 +76,8 @@ void sms_recieved(){
  String sender = server.arg("sender");
  String user = server.arg("user");
   Serial.println("Msg : "+msg + " by : "+sender +" to : "+user );
-  printToLCD("msg: "+msg + " by: "+sender +" to: "+user );
+ // printToLCD("msg: "+msg + " by: "+sender +" to: "+user );
+  printToLCD("New msg Recieved... " );
   msgs[pos] = msg;
   senders[pos] = sender;
    msgUser[pos] = user;
@@ -261,8 +267,98 @@ void loop() {
     Serial.println(k);
 
     if(k == '1'){
-      selector = 1;
-      printToLCD("Selected to view msgs");
+      
+      
+      printToLCD("Enter pin:");
+      lcd.setCursor(-4,2);
+      int count = 0;
+      String pin = "";
+      while(count < 4){
+        k = myKeypad.getKey();
+        switch(k){
+          case '1':
+            pin += "1";
+            count++;
+            lcd.print("*");
+            k = '\0';
+            break;
+         case '2':
+            pin += "2";
+            count++;
+            lcd.print("*");
+            k = '\0';
+            break;
+         case '3':
+            pin += "3";
+            count++;
+            lcd.print("*");
+            k = '\0';
+            break;
+          case '4':
+            pin += "4";
+            count++;
+            k = '\0';
+            lcd.print("*");
+            break;
+          case '5':
+            pin += "5";
+            count++;
+            k = '\0';
+            lcd.print("*");
+            break;
+          case '6':
+            pin += "6";
+            count++;
+            k = '\0';
+            lcd.print("*");
+            break;
+          case '7':
+            pin += "7";
+            count++;
+            k = '\0';
+            lcd.print("*");
+            break;
+          case '8':
+            pin += "8";
+            count++;
+            k = '\0';
+            lcd.print("*");
+            break;
+          case '9':
+            pin += "9";
+            count++;
+            k = '\0';
+            lcd.print("*");
+            break;
+            
+        }
+      }
+      boolean found = false;
+
+      HTTPClient http;
+      
+      http.begin("http://192.168.1.100/get_user?pin="+pin);
+    
+      int httpCode = http.GET();
+      if(httpCode == HTTP_CODE_OK)  {
+          String response = http.getString();
+          
+          curr_user = response;
+          selector = 1; 
+           printToLCD("Selected to view msgs"); 
+          
+          Serial.println(response);
+        
+      }else if(httpCode == 404){
+        curr_user = "";  
+        printToLCD("Incorrect pin!!!");
+      }else  {
+        Serial.println("Error in HTTP request "+ http.getString()+" "+String(httpCode) );
+      }
+    
+      http.end();
+          
+
     }
     if(k == '2'){
       selector = 2;
@@ -276,7 +372,17 @@ void loop() {
       }else{
         printToLCD("View next msg");
         delay(1000);
-        printToLCD("To: "+msgUser[readmsgpos]+" from: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);
+        for(int i=readmsgpos; i < pos; i++){
+          if(msgUser[i] == curr_user){
+            readmsgpos = i;
+          }
+        }
+        if(readmsgpos >= pos){
+          printToLCD("No any next msgs");
+        }else{
+          printToLCD("From: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);  
+        }
+        
         readmsgpos++;
       }
     }
@@ -288,10 +394,20 @@ void loop() {
       }else{
         printToLCD("View previous msg");
         delay(1000);
-        printToLCD("To: "+msgUser[readmsgpos]+" from: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);
+        for(int i=readmsgpos; i >= 0; i--){
+          if(msgUser[i] == curr_user){
+            readmsgpos = i;
+          }
+        }
+        if(readmsgpos == -1){
+          printToLCD("No any previous msgs");
+        }else{
+          printToLCD("From: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);  
+        }
         readmsgpos--;
       }
-    }
+      }
+    
     if(selector == 2 && k == '6'){
       if (readcallpos >= clPos){
         printToLCD("No any next missed call");

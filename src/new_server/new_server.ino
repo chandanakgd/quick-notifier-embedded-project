@@ -1,10 +1,12 @@
+#include <EEPROM.h>
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
-#include <Keypad.h>
 #include "FS.h"
 #include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
 #include <Wire.h>
 
 
@@ -46,6 +48,8 @@ byte rowPins[n_cols] = {D5, D6, D7};
 
 Keypad myKeypad = Keypad( makeKeymap(keys), colPins, rowPins, n_rows, n_cols);
 
+int eeprom_size = 0;
+
 String senders[COUNT];
 String msgs[COUNT];
 String msgUser[COUNT];
@@ -63,9 +67,18 @@ String newCalls[5];
 String newCallUser[5];
 int newCallPos = 0;
 
-int selector = 1;
+int selector = 0;
 int readcallpos = -1;
 
+String users[10];
+String pins[10];
+
+String curr_user = "";
+int user_count = 0;
+
+
+int pin_count;
+String pin = "";
 
 ESP8266WebServer server(80);
 
@@ -83,10 +96,33 @@ void test() {
 
 void authenticate(){
   String key_ = server.arg("key");
+  String pin = server.arg("pin");
+  String user = server.arg("user");
+
+  for(int i=0; i<user_count; i++){
+    if(user == users[i]){
+      server.send(200, "text/plain", "user_not_available");
+      return;
+    }
+  }
+  
   if(key == key_){
+
+    String val = user+"$"+pin;
+    if(eeprom_size == 0){
+      EEPROM.write(0,'^');
+      EEPROM.commit();  
+      eeprom_size = 1;
+      
+      writeToEEPROM(val, eeprom_size);
+    }else{
+      writeToEEPROM("&"+val, eeprom_size);
+    }
+    
+    
      Serial.println("Authenticated");
      server.send(200, "text/plain", "authenticated");
-     
+     loadFromEEPROM();
   }else{
     Serial.println("Not Authenticated");
      server.send(200, "text/plain", "not_authenticated");
@@ -187,7 +223,9 @@ void missedCall(){
   date_ = server.arg("date");
   user = server.arg("user");
    Serial.println(user+" missed a call from "+caller+" on "+date_+" at "+time_);
-  printToLCD(user+" missed a call from "+caller+" at "+time_+" on "+date_);
+  if(selector == 0){
+    printToLCD(user+" missed a call from "+caller+" at "+time_+" on "+date_);
+  }
 
   int index = -1;
   for(int i=newCallPos; i>=0;i--){
@@ -208,7 +246,9 @@ void missedCall(){
 
   delay(2000);
 
-  printToLCD(String(clPos)+" missed calls   "+String(pos)+" new msgs      1 - View msgs    2 - View calls");
+  if(selector == 0){
+    printToLCD(String(clPos)+" missed calls   "+String(pos)+" new msgs      1 - View msgs    2 - View calls");
+  }
   server.send(200, "text/plain", "missed call notification received..!");
 }
 
@@ -235,11 +275,10 @@ void newMsg(){
 
   int httpCode = http.GET();
   if(httpCode == HTTP_CODE_OK)  {
-      String response = http.getString();
-      Serial.println(response);
-    
+    String response = http.getString();
+    Serial.println(response);
   }  else  {
-    Serial.println("Error in HTTP request "+ http.getString()+" "+String(httpCode) );
+    Serial.println("Error in HTTP request "+ http.getString()+" "+String(httpCode));
   }
 
   http.end();
@@ -247,62 +286,18 @@ void newMsg(){
   sender = server.arg("sender");
   user = server.arg("user");
   Serial.println("Msg : "+msg + " by : "+sender +" to : "+user );
-  printToLCD("Msg : "+msg + " by : "+sender +" to : "+user );
+  if(selector == 0){
+    printToLCD("Msg : "+msg + " by : "+sender +" to : "+user );
+  }
   delay(4000);
 
-  printToLCD(String(clPos)+" missed calls   "+String(pos)+" new msgs      1 - View msgs    2 - View calls");
+  if(selector == 0){
+    printToLCD(String(clPos)+" missed calls   "+String(pos)+" new msgs      1 - View msgs    2 - View calls");
+  }
 
   server.send(200, "text/plain", "Message Recieved : COM07");
   
   
-}
-
-void printToLCD(String massage){
-  lcd.clear();
-  int startP=0;
-  int endP=massage.indexOf(' ');
-  int nextSpace=endP;
-  //Serial.println(massage.length());
-  int count=0;
-  
-  while(count<4){
-    if(count<2){
-      lcd.setCursor(0,count);  
-    }else{
-      lcd.setCursor(-4,count);  
-    }
-    
-    nextSpace=massage.indexOf(' ', endP+1);
-    if((nextSpace-startP)<=16 && nextSpace!=-1){
-        endP=nextSpace;
-        delay(10);
-    }else if((nextSpace-startP)>16){
-        count+=1;
-        Serial.println(massage.substring(startP,endP+1));
-        lcd.print(massage.substring(startP,endP+1));
-        
-        startP=endP+1;
-    }else if((massage.length()-startP)<=16 && nextSpace==-1){
-        Serial.println(massage.substring(startP));
-        lcd.print(massage.substring(startP));
-        
-        break;
-    }else{
-        Serial.println(massage.substring(startP,endP+1));
-        lcd.print(massage.substring(startP,endP+1));
-//        Serial.println(massage.substring(endP+1));
-//        lcd.print(massage.substring(endP+1));
-//        break;  
-        count++;
-        startP = endP+1;
-    }
-    if(count==4){
-//     
-      delay(2000);
-      lcd.clear();
-      count=0;  
-    }
-  }
 }
 //
 //void f(){
@@ -330,7 +325,9 @@ void newCall(){
     String caller = server.arg("caller");
     String user = server.arg("user");
     Serial.println("Call recieving by " + caller +" to " + user);
-    printToLCD("Call recieving by " + caller +" to " + user);
+    if(selector == 0){
+      printToLCD("Call recieving by " + caller +" to " + user);
+    }
     newCalls[newCallPos] = caller;
     newCallUser[newCallPos] = user;
     if(pos == 5 - 1){
@@ -358,6 +355,21 @@ void newCall(){
 
 }
 
+void getUser(){
+  String pin = server.arg("pin");
+  boolean found = false;
+  for(int i=0;i<user_count;i++){
+    if(pins[i] == pin){
+      found = true;
+      server.send(200, "text/plain", users[i]);
+      break;
+    }
+  }
+  if(!found){
+    server.send(404, "text/plain", "Not found");
+  }
+}
+
 void handleNotFound(){
   String message = "File Not Found\n\n";
   message += "URI: ";
@@ -372,10 +384,123 @@ void handleNotFound(){
   }
   server.send(404, "text/plain", message);
 }
- 
-void setup(void){
+
+void loadFromEEPROM(){
+  int j = 0;
+  String str = "";
+  boolean userRead = false;
+  for(int i=0; i<eeprom_size+1; i++){
+    char ch = char(EEPROM.read(i));
+    if(i==0 && ch != '^'){
+      eeprom_size = 0;
+      break;
+    }
+    
+    if(ch == '#'){
+      eeprom_size = i;
+      pins[j] = str;
+      Serial.println("Pin : " + str);
+      str = "";
+      userRead = false;
+      j++;
+      break;
+    }
+    if(ch == '$'){
+      users[j] = str;
+      Serial.println("User : " + str);
+      str = "";
+      userRead = true;
+      continue;
+    }
+    if(ch == '&' && userRead){
+      pins[j] = str;
+      Serial.println("Pin : " + str);
+      str = "";
+      userRead = false;
+      j++;
+      continue;
+    }
+    if(ch != '^'){
+      str += ch;  
+    }
+    
+    user_count++;
+    
+  }
+}
+
+void writeToEEPROM(String val, int addr){
+  int j = 0;
+  for(int i = addr; i < addr+val.length(); i++){
+    EEPROM.write(i,val[j++]);
+    eeprom_size = i;
+  }
+  eeprom_size++;
+  EEPROM.write(eeprom_size,'#');
+  EEPROM.commit();
   
+ // eeprom_size++;
+}
+
+
+void clear_(){
+  for(int i = 0; i < 512; i++){
+    EEPROM.write(i,0);
+  }
+  EEPROM.commit();
+  server.send(200, "text/plain", "All Cleared");
+}
+
+void details(){
+  loadFromEEPROM();
+  Serial.println("WiFi status : "+String(WiFi.status()));
+  Serial.println("Connected to wifi with IP : "+String(WiFi.localIP()));
+  Serial.println();
+  Serial.println("===============================================================");
+  Serial.println("User Count : "+String(user_count));
+  for(int i=0; i < user_count; i++){
+    Serial.println("User : "+users[i] + " -> PIN : " + pins[i]);
+  }
+  Serial.println();
+  Serial.println("===============================================================");
+  Serial.println("EEPROM SIZE : "+String(eeprom_size));
+   String str = "";
+  for(int i = 0; i < 255; i++){
+    char ch = EEPROM.read(i);
+    str += ch;
+    if (ch == '#'){
+      break;
+    }
+  }
+  Serial.println("EEPROM contains : "+str);
+  Serial.println();
+  Serial.println("===============================================================");
+  Serial.println("===============================================================");
+  server.send(200,"text/plain", "Printed");
+  
+}
+
+void printEEPROM(){
+  String str = "";
+  eeprom_size = 0;
+  for(int i = 0; i < 255; i++){
+    char ch = EEPROM.read(i);
+    str += ch;
+    if (ch == '#'){
+      break;
+    }
+    eeprom_size++;
+  }
+  
+  Serial.println("EEPROM contains : "+str);
+  Serial.println("EEPROM size : "+String(eeprom_size));
+  server.send(200, "text/plain", str);
+  
+}
+void setup(void){
+
   Serial.begin(115200);
+  EEPROM.begin(512);
   
  // f();
   WiFi.begin(ssid, password);
@@ -401,6 +526,10 @@ void setup(void){
   server.on("/end_ringing", endRinging);
   server.on("/missed_call", missedCall);
   server.on("/auth", authenticate);
+  server.on("/get_user", getUser);
+  server.on("/clear", clear_);
+  server.on("/printe", printEEPROM);
+  server.on("/details", details);
 
   server.onNotFound(handleNotFound);
   
@@ -414,8 +543,9 @@ void setup(void){
   printToLCD("Welcome To Our Quick Notifier. Group 17. CO321 - Embedded System E13041 E13170 E13234");
 
 
-  printToLCD(String(clPos)+" missed calls   "+String(pos)+" new msgs      1 - View msgs    2 - View calls");
-  
+  printToLCD(String(pos)+" new msgs     "+String(clPos)+" missed calls      1 - View msgs    2 - View calls");
+  printEEPROM();
+  loadFromEEPROM();
 //Serial.println("Setup completed..");
   
 }
@@ -437,14 +567,23 @@ void loop(void){
     Serial.print("Key pressed: ");
     Serial.println(k);
 
-    if(k == '1'){
-      selector = 1;
-      printToLCD("Selected to view msgs");
-    }
-    if(k == '2'){
+    
+    if(selector!= 5 && k == '2'){
       selector = 2;
       printToLCD("Selected to view calls");
     }
+    if(selector!= 5 && k == '1'){
+     
+      printToLCD("Enter pin:");
+      lcd.setCursor(-4,2);
+      selector = 5;
+      pin_count = 0;
+      k = '\0';
+      
+    }
+
+    
+    
     if(selector == 1 && k == '6'){
       if (readmsgpos >= pos){
         printToLCD("No any next msgs");
@@ -453,7 +592,18 @@ void loop(void){
       }else{
         printToLCD("View next msg");
         delay(1000);
-        printToLCD("To: "+msgUser[readmsgpos]+" from: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);
+
+        for(int i=readmsgpos; i < pos; i++){
+          if(msgUser[i] == curr_user){
+            readmsgpos = i;
+          }
+        }
+        if(readmsgpos >= pos){
+          printToLCD("No any next msgs");
+        }else{
+          printToLCD("From: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);  
+        }
+        
         readmsgpos++;
       }
     }
@@ -465,7 +615,17 @@ void loop(void){
       }else{
         printToLCD("View previous msg");
         delay(1000);
-        printToLCD("To: "+msgUser[readmsgpos]+" from: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);
+        
+        for(int i=readmsgpos; i >= 0; i--){
+          if(msgUser[i] == curr_user){
+            readmsgpos = i;
+          }
+        }
+        if(readmsgpos == -1){
+          printToLCD("No any previous msgs");
+        }else{
+          printToLCD("From: "+senders[readmsgpos]+" : "+msgs[readmsgpos]);  
+        }
         readmsgpos--;
       }
     }
@@ -495,8 +655,87 @@ void loop(void){
         readcallpos--;
       }
     }
-    if(k == '5'){
+    if(selector!= 5 && k == '5'){
       printToLCD(String(clPos)+" missed calls   "+String(pos)+" new msgs      1 - View msgs    2 - View calls");
+      curr_user = "";
+      selector = 0;
+    }
+
+
+    if(selector == 5){
+      
+      lcd.setCursor(-4+pin_count, 2);
+      switch(k){
+        case '1':
+          pin += "1";
+          pin_count++;
+          lcd.print("*");
+          break;
+       case '2':
+          pin += "2";
+          pin_count++;
+          lcd.print("*");
+          break;
+       case '3':
+          pin += "3";
+          pin_count++;
+          lcd.print("*");
+          break;
+        case '4':
+          pin += "4";
+          pin_count++;
+          lcd.print("*");
+          break;
+        case '5':
+          pin += "5";
+          pin_count++;
+          lcd.print("*");
+          break;
+        case '6':
+          pin += "6";
+          pin_count++;
+          lcd.print("*");
+          break;
+        case '7':
+          pin += "7";
+          pin_count++;
+          lcd.print("*");
+          break;
+        case '8':
+          pin += "8";
+          pin_count++;
+          lcd.print("*");
+          break;
+        case '9':
+          pin += "9";
+          pin_count++;
+          lcd.print("*");
+          break;      
+      }
+
+      if(pin_count == 4){
+        selector = 0;
+        
+        boolean found = false;
+        curr_user = "";
+        for(int i=0;i<user_count;i++){
+          if(pins[i] == pin){
+            found = true;
+            curr_user = users[i];
+            break;
+          }
+        }
+        if(!found){
+          printToLCD("Incorrect pin!!!");
+        }else{
+          selector = 1; 
+          printToLCD("Selected to view msgs"); 
+        }
+        pin = "";
+        pin_count = 0;
+      }
+     
+      
     }
   }
 
@@ -600,4 +839,54 @@ unsigned char h2int(char c)
         return((unsigned char)c - 'A' + 10);
     }
     return(0);
+}
+
+
+
+void printToLCD(String massage){
+  lcd.clear();
+  int startP=0;
+  int endP=massage.indexOf(' ');
+  int nextSpace=endP;
+  //Serial.println(massage.length());
+  int count=0;
+  
+  while(count<4){
+    if(count<2){
+      lcd.setCursor(0,count);  
+    }else{
+      lcd.setCursor(-4,count);  
+    }
+    
+    nextSpace=massage.indexOf(' ', endP+1);
+    if((nextSpace-startP)<=16 && nextSpace!=-1){
+        endP=nextSpace;
+        delay(10);
+    }else if((nextSpace-startP)>16){
+        count+=1;
+        Serial.println(massage.substring(startP,endP+1));
+        lcd.print(massage.substring(startP,endP+1));
+        
+        startP=endP+1;
+    }else if((massage.length()-startP)<=16 && nextSpace==-1){
+        Serial.println(massage.substring(startP));
+        lcd.print(massage.substring(startP));
+        
+        break;
+    }else{
+        Serial.println(massage.substring(startP,endP+1));
+        lcd.print(massage.substring(startP,endP+1));
+//        Serial.println(massage.substring(endP+1));
+//        lcd.print(massage.substring(endP+1));
+//        break;  
+        count++;
+        startP = endP+1;
+    }
+    if(count==4){
+//     
+      delay(2000);
+      lcd.clear();
+      count=0;  
+    }
+  }
 }
